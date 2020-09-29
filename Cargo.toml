@@ -1,0 +1,17 @@
+[package]
+name = "rezip"
+version = "0.0.0"
+authors = ["Rouven Spreckels <rs@qu1x.dev>"]
+edition = "2018"
+description = "Merges ZIP/NPZ archives recompressed or aligned and stacks NPY arrays"
+documentation = "https://docs.rs/rezip"
+repository = "https://github.com/qu1x/rezip"
+readme = "README.md"
+keywords = ["align", "merge", "zip", "npy", "npz"]
+categories = ["command-line-utilities"]
+license = "MIT OR Apache-2.0"
+
+[badges]
+travis-ci = { repository = "qu1x/rezip" }
+
+[dependencies]
