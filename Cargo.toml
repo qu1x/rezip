@@ -1,10 +1,9 @@
 [package]
 name = "rezip"
-version = "0.0.0"
+version = "0.1.0"
 authors = ["Rouven Spreckels <rs@qu1x.dev>"]
 edition = "2018"
 description = "Merges ZIP/NPZ archives recompressed or aligned and stacks NPY arrays"
-documentation = "https://docs.rs/rezip"
 repository = "https://github.com/qu1x/rezip"
 readme = "README.md"
 keywords = ["align", "merge", "zip", "npy", "npz"]
@@ -15,3 +14,10 @@ license = "MIT OR Apache-2.0"
 travis-ci = { repository = "qu1x/rezip" }
 
 [dependencies]
+anyhow = "1"
+clap = { version = "3.0.0-beta.2", features = ["wrap_help"] }
+glob = "0.3"
+indexmap = "1"
+zip = { git = "https://github.com/qu1x/zip.git", branch = "support-extra-field" }
+ndarray = "0.13"
+ndarray-npy = { version = "0.6", default-features = false }
