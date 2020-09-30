@@ -491,72 +491,74 @@ where
 	W: Write + Seek,
 	R: Read + Seek,
 {
-	if stack_npy::<f64, W, R>(path, zip, zips, files, name, axis)?.is_ok() {
+	let name = || format!("Cannot stack `{}`", name);
+	if stack_npy::<f64, W, R, _>(path, zip, zips, files, name, axis)? {
 		return Ok(());
 	}
-	if stack_npy::<f32, W, R>(path, zip, zips, files, name, axis)?.is_ok() {
+	if stack_npy::<f32, W, R, _>(path, zip, zips, files, name, axis)? {
 		return Ok(());
 	}
-	if stack_npy::<i64, W, R>(path, zip, zips, files, name, axis)?.is_ok() {
+	if stack_npy::<i64, W, R, _>(path, zip, zips, files, name, axis)? {
 		return Ok(());
 	}
-	if stack_npy::<u64, W, R>(path, zip, zips, files, name, axis)?.is_ok() {
+	if stack_npy::<u64, W, R, _>(path, zip, zips, files, name, axis)? {
 		return Ok(());
 	}
-	if stack_npy::<i32, W, R>(path, zip, zips, files, name, axis)?.is_ok() {
+	if stack_npy::<i32, W, R, _>(path, zip, zips, files, name, axis)? {
 		return Ok(());
 	}
-	if stack_npy::<u32, W, R>(path, zip, zips, files, name, axis)?.is_ok() {
+	if stack_npy::<u32, W, R, _>(path, zip, zips, files, name, axis)? {
 		return Ok(());
 	}
-	if stack_npy::<i16, W, R>(path, zip, zips, files, name, axis)?.is_ok() {
+	if stack_npy::<i16, W, R, _>(path, zip, zips, files, name, axis)? {
 		return Ok(());
 	}
-	if stack_npy::<u16, W, R>(path, zip, zips, files, name, axis)?.is_ok() {
+	if stack_npy::<u16, W, R, _>(path, zip, zips, files, name, axis)? {
 		return Ok(());
 	}
-	if stack_npy::<i8, W, R>(path, zip, zips, files, name, axis)?.is_ok() {
+	if stack_npy::<i8, W, R, _>(path, zip, zips, files, name, axis)? {
 		return Ok(());
 	}
-	if stack_npy::<u8, W, R>(path, zip, zips, files, name, axis)?.is_ok() {
+	if stack_npy::<u8, W, R, _>(path, zip, zips, files, name, axis)? {
 		return Ok(());
 	}
-	stack_npy::<bool, W, R>(path, zip, zips, files, name, axis)?
+	if stack_npy::<bool, W, R, _>(path, zip, zips, files, name, axis)? {
+		return Ok(());
+	}
+	Err(anyhow!("Unsupported data-type")).with_context(name)
 }
 
-fn stack_npy<A, W, R>(
+fn stack_npy<A, W, R, F>(
 	path: &Path,
 	zip: &mut ZipWriter<W>,
 	zips: &mut [ZipArchive<R>],
 	files: &[(usize, usize)],
-	name: &str,
+	name: F,
 	axis: usize,
-) -> Result<Result<()>>
+) -> Result<bool>
 where
 	A: ReadableElement + WritableElement + Copy,
 	W: Write + Seek,
 	R: Read + Seek,
+	F: Fn() -> String,
 {
-	let stack = || format!("Cannot stack `{}`", name);
 	let mut arrays = Vec::new();
 	for (input, index) in files.iter().copied() {
 		let file = zips[input].by_index(index).unwrap();
 		let array = match ArrayD::<A>::read_npy(file) {
 			Ok(arr) => arr,
-			Err(ReadNpyError::WrongDescriptor(_)) => {
-				return Ok(Err(anyhow!("Unsupported data-type")).with_context(stack))
-			}
-			Err(err) => return Err(err).with_context(stack),
+			Err(ReadNpyError::WrongDescriptor(_)) => return Ok(false),
+			Err(err) => return Err(err).with_context(name),
 		};
 		arrays.push(array);
 	}
 	let arrays = arrays.iter().map(ArrayD::view).collect::<Vec<_>>();
-	let array = ndarray::stack(Axis(axis), &arrays).with_context(stack)?;
+	let array = ndarray::stack(Axis(axis), &arrays).with_context(name)?;
 	array.write_npy(zip).with_context(|| {
 		format!(
 			"Cannot write file to output ZIP archive `{}`",
 			path.display()
 		)
 	})?;
-	Ok(Ok(()))
+	Ok(true)
 }
