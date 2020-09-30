@@ -373,13 +373,13 @@ fn main() -> Result<()> {
 					_ => unreachable!(),
 				}
 			} else {
-				let (input, file) = &mut files
+				let (input, ref mut file) = files
 					.last()
 					.copied()
-					.map(|(input, index)| (&inputs[input], zips[input].by_index(index).unwrap()))
+					.map(|(input, index)| (input, zips[input].by_index(index).unwrap()))
 					.unwrap();
 				if verbose > 0 {
-					println!("`{}`: merge from `{}`", name, input.display());
+					println!("`{}`: merge from `{}`", name, inputs[input].display());
 				}
 				copy(file, zip).with_context(|| {
 					format!(
@@ -389,6 +389,15 @@ fn main() -> Result<()> {
 				})?;
 			}
 		}
+		if verbose > 0 {
+			println!("Finish `{}`", path.display());
+		}
+		zip.finish().with_context(|| {
+			format!(
+				"Cannot write file to output ZIP archive `{}`",
+				path.display()
+			)
+		})?;
 		if verbose > 1 {
 			println!("Padded {} bytes in total", total_pad_length);
 		}
