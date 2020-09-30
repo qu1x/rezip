@@ -392,12 +392,14 @@ fn main() -> Result<()> {
 		if verbose > 0 {
 			println!("Finish `{}`", path.display());
 		}
-		zip.finish().with_context(|| {
-			format!(
-				"Cannot write file to output ZIP archive `{}`",
-				path.display()
-			)
-		})?;
+		zip.finish()
+			.and_then(|mut zip| zip.flush().map_err(From::from))
+			.with_context(|| {
+				format!(
+					"Cannot write file to output ZIP archive `{}`",
+					path.display()
+				)
+			})?;
 		if verbose > 1 {
 			println!("Padded {} bytes in total", total_pad_length);
 		}
