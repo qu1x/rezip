@@ -82,7 +82,7 @@
 #![forbid(unsafe_code)]
 #![forbid(missing_docs)]
 
-use anyhow::{anyhow, Context, Result};
+use color_eyre::{eyre::eyre, eyre::WrapErr, Result};
 use clap::{crate_authors, crate_version, AppSettings, Clap};
 use glob::Pattern;
 use indexmap::IndexMap;
@@ -168,7 +168,7 @@ where
 				.map(|(left, right)| (left, &right[1..]))
 				.unwrap_or(("*", value));
 			Pattern::new(left)
-				.with_context(|| format!("Invalid glob pattern `{}`", left))
+				.wrap_err_with(|| format!("Invalid glob pattern `{}`", left))
 				.and_then(|left| {
 					if right.is_empty() {
 						Ok(None)
@@ -197,6 +197,7 @@ fn match_glob_value<T: Copy>(values: &[(Pattern, Option<T>)], name: &str) -> Opt
 }
 
 fn main() -> Result<()> {
+	color_eyre::install()?;
 	let Rezip {
 		inputs,
 		output,
@@ -207,13 +208,13 @@ fn main() -> Result<()> {
 		verbose,
 	} = Rezip::parse();
 	let recompress = parse_glob_value(&recompress, |method| {
-		match method {
+		match method.to_lowercase().as_str() {
 			"stored" => Ok(CompressionMethod::Stored),
 			"deflated" => Ok(CompressionMethod::Deflated),
 			"bzip2" => Ok(CompressionMethod::Bzip2),
-			_ => Err(anyhow!("Unsupported method `{}`", method)),
+			_ => Err(eyre!("Unsupported method `{}`", method)),
 		}
-		.with_context(|| format!("Invalid recompress method `{}`", method))
+		.wrap_err_with(|| format!("Invalid recompress method `{}`", method))
 	})?;
 	let align = parse_glob_value(&align, |bytes| {
 		bytes
@@ -223,14 +224,14 @@ fn main() -> Result<()> {
 				if bytes != 0 && bytes & bytes.wrapping_sub(1) == 0 {
 					Ok(bytes)
 				} else {
-					Err(anyhow!("Must be a power of two"))
+					Err(eyre!("Must be a power of two"))
 				}
 			})
-			.with_context(|| format!("Invalid align bytes `{}`", bytes))
+			.wrap_err_with(|| format!("Invalid align bytes `{}`", bytes))
 	})?;
 	let stack = parse_glob_value(&stack, |axis| {
 		axis.parse()
-			.with_context(|| format!("Invalid stack axis `{}`", axis))
+			.wrap_err_with(|| format!("Invalid stack axis `{}`", axis))
 	})?;
 	let mut zip = output
 		.as_ref()
@@ -244,7 +245,7 @@ fn main() -> Result<()> {
 				.open(path)
 				.map(BufWriter::new)
 				.map(ZipWriter::new)
-				.with_context(|| format!("Cannot create output ZIP archive `{}`", path.display()))
+				.wrap_err_with(|| format!("Cannot create output ZIP archive `{}`", path.display()))
 		})
 		.transpose()?;
 	let mut zips = inputs
@@ -253,10 +254,10 @@ fn main() -> Result<()> {
 			OpenOptions::new()
 				.read(true)
 				.open(path)
-				.with_context(|| format!("Cannot open input ZIP archive `{}`", path.display()))
+				.wrap_err_with(|| format!("Cannot open input ZIP archive `{}`", path.display()))
 				.map(BufReader::new)
 				.and_then(|zip| {
-					ZipArchive::new(zip).with_context(|| {
+					ZipArchive::new(zip).wrap_err_with(|| {
 						format!("Cannot read input ZIP archive `{}`", path.display())
 					})
 				})
@@ -265,7 +266,7 @@ fn main() -> Result<()> {
 	let mut files = IndexMap::<_, Vec<_>>::new();
 	for (input, (path, zip)) in inputs.iter().zip(&mut zips).enumerate() {
 		for index in 0..zip.len() {
-			let file = zip.by_index(index).with_context(|| {
+			let file = zip.by_index(index).wrap_err_with(|| {
 				format!(
 					"Cannot read file[{}] in input ZIP archive `{}`",
 					index,
@@ -304,7 +305,7 @@ fn main() -> Result<()> {
 				if verbose > 0 {
 					println!("`{}`: add directory", name);
 				}
-				zip.add_directory(name, options).with_context(|| {
+				zip.add_directory(name, options).wrap_err_with(|| {
 					format!(
 						"Cannot add directory to output ZIP archive `{}`",
 						path.display()
@@ -323,7 +324,7 @@ fn main() -> Result<()> {
 				}
 				let pad_length =
 					zip.start_file_aligned(name, options, bytes)
-						.with_context(|| {
+						.wrap_err_with(|| {
 							format!(
 								"Cannot start file in output ZIP archive `{}`",
 								path.display()
@@ -346,7 +347,7 @@ fn main() -> Result<()> {
 						}
 					);
 				}
-				zip.start_file(name, options).with_context(|| {
+				zip.start_file(name, options).wrap_err_with(|| {
 					format!(
 						"Cannot start file in output ZIP archive `{}`",
 						path.display()
@@ -381,7 +382,7 @@ fn main() -> Result<()> {
 				if verbose > 0 {
 					println!("`{}`: merge from `{}`", name, inputs[input].display());
 				}
-				copy(file, zip).with_context(|| {
+				copy(file, zip).wrap_err_with(|| {
 					format!(
 						"Cannot write file to output ZIP archive `{}`",
 						path.display()
@@ -394,7 +395,7 @@ fn main() -> Result<()> {
 		}
 		zip.finish()
 			.and_then(|mut zip| zip.flush().map_err(From::from))
-			.with_context(|| {
+			.wrap_err_with(|| {
 				format!(
 					"Cannot write file to output ZIP archive `{}`",
 					path.display()
@@ -474,9 +475,9 @@ fn main() -> Result<()> {
 				}
 				Ok(())
 			}
-			(false, true) => Err(anyhow!("Not compressed but aligned as requested")),
-			(true, false) => Err(anyhow!("Compressed but not aligned as requested")),
-			(false, false) => Err(anyhow!("Not compressed nor aligned as requested")),
+			(false, true) => Err(eyre!("Not compressed but aligned as requested")),
+			(true, false) => Err(eyre!("Compressed but not aligned as requested")),
+			(false, false) => Err(eyre!("Not compressed nor aligned as requested")),
 		}
 	}
 }
@@ -527,7 +528,7 @@ where
 	if stack_npy::<bool, W, R, _>(path, zip, zips, files, name, axis)? {
 		return Ok(());
 	}
-	Err(anyhow!("Unsupported data-type")).with_context(name)
+	Err(eyre!("Unsupported data-type")).wrap_err_with(name)
 }
 
 fn stack_npy<A, W, R, F>(
@@ -550,13 +551,13 @@ where
 		let array = match ArrayD::<A>::read_npy(file) {
 			Ok(arr) => arr,
 			Err(ReadNpyError::WrongDescriptor(_)) => return Ok(false),
-			Err(err) => return Err(err).with_context(name),
+			Err(err) => return Err(err).wrap_err_with(name),
 		};
 		arrays.push(array);
 	}
 	let arrays = arrays.iter().map(ArrayD::view).collect::<Vec<_>>();
-	let array = ndarray::stack(Axis(axis), &arrays).with_context(name)?;
-	array.write_npy(zip).with_context(|| {
+	let array = ndarray::stack(Axis(axis), &arrays).wrap_err_with(name)?;
+	array.write_npy(zip).wrap_err_with(|| {
 		format!(
 			"Cannot write file to output ZIP archive `{}`",
 			path.display()
