@@ -88,6 +88,7 @@ use glob::Pattern;
 use indexmap::IndexMap;
 use ndarray::{ArrayD, Axis};
 use ndarray_npy::{ReadNpyError, ReadNpyExt, ReadableElement, WritableElement, WriteNpyExt};
+use std::cmp::max;
 use std::ffi::OsStr;
 use std::fs::OpenOptions;
 use std::io::{copy, BufReader, BufWriter, Read, Seek, Write};
@@ -295,7 +296,8 @@ fn main() -> Result<()> {
 				};
 				let options = FileOptions::default()
 					.compression_method(method)
-					.last_modified_time(file.last_modified());
+					.last_modified_time(file.last_modified())
+					.large_file(max(file.size(), file.compressed_size()) > u32::MAX as u64);
 				let options = file
 					.unix_mode()
 					.map_or(options, |mode| options.unix_permissions(mode));
