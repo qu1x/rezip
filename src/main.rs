@@ -110,7 +110,6 @@ use zip::{write::FileOptions, CompressionMethod, ZipArchive, ZipWriter};
 #[clap(
 	version = crate_version!(),
 	author = crate_authors!(),
-	max_term_width = 80,
 	global_setting = AppSettings::ColoredHelp,
 	global_setting = AppSettings::DeriveDisplayOrder,
 	global_setting = AppSettings::UnifiedHelpMessage,
