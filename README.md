@@ -17,7 +17,7 @@ Merges ZIP/NPZ archives recompressed or aligned and stacks NPY arrays
 ## Installation
 
 ```sh
-cargo install rezip
+cargo install --git https://github.com/qu1x/rezip.git
 ```
 
 ## Command-line Interface
