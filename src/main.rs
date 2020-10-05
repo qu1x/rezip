@@ -13,14 +13,14 @@
 //! Rouven Spreckels <rs@qu1x.dev>
 //! Merges ZIP/NPZ archives recompressed or aligned and stacks NPY arrays
 //!
-//! Options accepting <[glob:]value> pairs use the given values for matching file
+//! Options accepting <[glob=]value> pairs use the given values for matching file
 //! names in input ZIP archives. Matches of former pairs are superseded by matches
-//! of latter pairs. Omitting [glob:] by only passing a value assumes the * glob
+//! of latter pairs. Omitting [glob=] by only passing a value assumes the * glob
 //! pattern matching all file names whereas an empty glob pattern matches no file
 //! names. An empty value disables the option for the file names matching the glob
 //! pattern. Passing a single pair with an empty glob pattern and an empty value,
-//! that is a colon only, disables an option with default values entirely as in
-//! --recompress : whereas passing no pairs as in --recompress keeps assuming the
+//! that is a = only, disables an option with default values entirely as in
+//! --recompress = whereas passing no pairs as in --recompress keeps assuming the
 //! default values.
 //!
 //! USAGE:
@@ -40,27 +40,30 @@
 //!             Writes output ZIP archive.
 //!
 //!             With no output ZIP archive, checks if files in input ZIP archives
-//!             are as requested according to --recompress and --align.
+//!             are as requested according to --recompress and --align. Recompress
+//!             levels are not considered.
 //!
 //!     -f, --force
 //!             Writes existing output ZIP archive
 //!
-//!     -r, --recompress <[glob:]method>...
+//!     -r, --recompress <[glob=]method>...
 //!             Writes files recompressed.
 //!
 //!             Supported methods are stored (uncompressed), deflated (most common),
-//!             and bzip2 (high ratio). With no methods, files are compressed using
-//!             their original methods. [default: stored]
+//!             bzip2[:1-9] (high ratio) with 9 as default level, and zstd[:1-21]
+//!             (modern) with 3 as default level. With no methods, files are
+//!             recompressed using their original methods but with default levels.
+//!             [default: stored]
 //!
-//!     -a, --align <[glob:]bytes>...
+//!     -a, --align <[glob=]bytes>...
 //!             Aligns uncompressed files.
 //!
 //!             Aligns uncompressed files in ZIP archives by padding local file
 //!             headers to enable memory-mapping, SIMD instruction extensions like
 //!             AVX-512, and dynamic loading of shared objects. [default: 64
-//!             *.so:4096]
+//!             *.so=4096]
 //!
-//!     -s, --stack <[glob:]axis>...
+//!     -s, --stack <[glob=]axis>...
 //!             Stacks arrays along axis.
 //!
 //!             One stacked array at a time must fit twice into memory before it is
@@ -96,17 +99,18 @@ use zip::{write::FileOptions, CompressionMethod, ZipArchive, ZipWriter};
 
 /// Merges ZIP/NPZ archives recompressed or aligned and stacks NPY arrays
 ///
-/// Options accepting <[glob:]value> pairs use the given values for matching file names in input ZIP
-/// archives. Matches of former pairs are superseded by matches of latter pairs. Omitting [glob:]
+/// Options accepting <[glob=]value> pairs use the given values for matching file names in input ZIP
+/// archives. Matches of former pairs are superseded by matches of latter pairs. Omitting [glob=]
 /// by only passing a value assumes the * glob pattern matching all file names whereas an empty glob
 /// pattern matches no file names. An empty value disables the option for the file names matching
 /// the glob pattern. Passing a single pair with an empty glob pattern and an empty value, that is a
-/// colon only, disables an option with default values entirely as in --recompress : whereas passing
-/// no pairs as in --recompress keeps assuming the default values.
+/// = only, disables an option with default values entirely as in --recompress = whereas passing no
+/// pairs as in --recompress keeps assuming the default values.
 #[derive(Clap, Debug)]
 #[clap(
 	version = crate_version!(),
 	author = crate_authors!(),
+	max_term_width = 80,
 	global_setting = AppSettings::ColoredHelp,
 	global_setting = AppSettings::DeriveDisplayOrder,
 	global_setting = AppSettings::UnifiedHelpMessage,
@@ -123,7 +127,7 @@ struct Rezip {
 	/// Writes output ZIP archive.
 	///
 	/// With no output ZIP archive, checks if files in input ZIP archives are as requested according
-	/// to --recompress and --align.
+	/// to --recompress and --align. Recompress levels are not considered.
 	#[clap(short, long, value_name = "ZIP")]
 	output: Option<PathBuf>,
 	/// Writes existing output ZIP archive.
@@ -131,22 +135,23 @@ struct Rezip {
 	force: bool,
 	/// Writes files recompressed.
 	///
-	/// Supported methods are stored (uncompressed), deflated (most common), and bzip2 (high ratio).
-	/// With no methods, files are compressed using their original methods.
-	#[clap(short, long, value_name = "[glob:]method", default_values = &["stored"])]
+	/// Supported methods are stored (uncompressed), deflated (most common), bzip2[:1-9] (high
+	/// ratio) with 9 as default level, and zstd[:1-21] (modern) with 3 as default level. With no
+	/// methods, files are recompressed using their original methods but with default levels.
+	#[clap(short, long, value_name = "[glob=]method", default_values = &["stored"])]
 	recompress: Vec<String>,
 	/// Aligns uncompressed files.
 	///
 	/// Aligns uncompressed files in ZIP archives by padding local file headers to enable
 	/// memory-mapping, SIMD instruction extensions like AVX-512, and dynamic loading of shared
 	/// objects.
-	#[clap(short, long, value_name = "[glob:]bytes", default_values = &["64", "*.so:4096"])]
+	#[clap(short, long, value_name = "[glob=]bytes", default_values = &["64", "*.so=4096"])]
 	align: Vec<String>,
 	/// Stacks arrays along axis.
 	///
 	/// One stacked array at a time must fit twice into memory before it is written to the output
 	/// ZIP archive.
-	#[clap(short, long, value_name = "[glob:]axis", default_values = &["0"])]
+	#[clap(short, long, value_name = "[glob=]axis", default_values = &["0"])]
 	stack: Vec<String>,
 	/// Prints status information.
 	///
@@ -163,7 +168,7 @@ where
 		.iter()
 		.map(|value| {
 			let (left, right) = value
-				.rfind(':')
+				.rfind('=')
 				.map(|mid| value.split_at(mid))
 				.map(|(left, right)| (left, &right[1..]))
 				.unwrap_or(("*", value));
@@ -208,19 +213,43 @@ fn main() -> Result<()> {
 		verbose,
 	} = Rezip::parse();
 	let recompress = parse_glob_value(&recompress, |method| {
-		match method.to_lowercase().as_str() {
-			"stored" => Ok(CompressionMethod::Stored),
-			"deflated" => Ok(CompressionMethod::Deflated),
-			"bzip2" => Ok(CompressionMethod::Bzip2),
-			_ => Err(eyre!("Unsupported method `{}`", method)),
+		let mut parameters = method.split(':');
+		let (algorithm, level) = (parameters.next(), parameters.next());
+		match (algorithm, level) {
+			(Some("stored"), None) => Ok((CompressionMethod::Stored, None)),
+			(Some("deflated"), None) => Ok((CompressionMethod::Deflated, None)),
+			(Some("bzip2"), level) => level
+				.map_or(Ok(Some(9)), |level| {
+					level.parse::<i32>().map_err(From::from).and_then(|level| {
+						if (1..=9).contains(&level) {
+							Ok(Some(level))
+						} else {
+							Err(eyre!("Invalid level in `{}`", method))
+						}
+					})
+				})
+				.map(|level| (CompressionMethod::Bzip2, level)),
+			(Some("zstd"), level) => level
+				.map_or(Ok(Some(3)), |level| {
+					level.parse::<i32>().map_err(From::from).and_then(|level| {
+						if (1..=21).contains(&level) {
+							Ok(Some(level))
+						} else {
+							Err(eyre!("Invalid level in `{}`", method))
+						}
+					})
+				})
+				.map(|level| (CompressionMethod::Zstd, level)),
+			(Some(_), _) => Err(eyre!("Unsupported method `{}`", method)),
+			_ => Err(eyre!("Invalid method `{}`", method)),
 		}
 		.wrap_err_with(|| format!("Invalid recompress method `{}`", method))
 	})?;
 	let align = parse_glob_value(&align, |bytes| {
 		bytes
-			.parse()
+			.parse::<u16>()
 			.map_err(From::from)
-			.and_then(|bytes: u16| {
+			.and_then(|bytes| {
 				if bytes != 0 && bytes & bytes.wrapping_sub(1) == 0 {
 					Ok(bytes)
 				} else {
@@ -281,7 +310,7 @@ fn main() -> Result<()> {
 		let mut total_pad_length = 0;
 		for (name, files) in &files {
 			let extension = Path::new(&name).extension().and_then(OsStr::to_str);
-			let (is_dir, method, recompress, options) = {
+			let (is_dir, algorithm, level, options) = {
 				let file = files
 					.last()
 					.copied()
@@ -289,18 +318,19 @@ fn main() -> Result<()> {
 					.unwrap()
 					.unwrap();
 				let is_dir = file.is_dir();
-				let (method, recompress) = match match_glob_value(&recompress, name) {
-					Some(method) => (method, file.compression() != method),
-					None => (file.compression(), false),
+				let (algorithm, level) = match match_glob_value(&recompress, name) {
+					Some((algorithm, level)) => (algorithm, level),
+					None => (file.compression(), None),
 				};
 				let options = FileOptions::default()
-					.compression_method(method)
+					.compression_method(algorithm)
 					.last_modified_time(file.last_modified())
 					.large_file(true);
+				let options = level.map_or(options, |level| options.compression_level(level));
 				let options = file
 					.unix_mode()
 					.map_or(options, |mode| options.unix_permissions(mode));
-				(is_dir, method, recompress, options)
+				(is_dir, algorithm, level, options)
 			};
 			if is_dir {
 				if verbose > 0 {
@@ -314,7 +344,7 @@ fn main() -> Result<()> {
 				})?;
 				continue;
 			}
-			let bytes = if method == CompressionMethod::Stored {
+			let bytes = if algorithm == CompressionMethod::Stored {
 				match_glob_value(&align, name)
 			} else {
 				None
@@ -338,14 +368,10 @@ fn main() -> Result<()> {
 			} else {
 				if verbose > 0 {
 					println!(
-						"`{}`: start file {}-{}",
+						"`{}`: start file {}{}-recompressed",
 						name,
-						method.to_string().to_lowercase(),
-						if recompress {
-							"recompressed"
-						} else {
-							"compressed"
-						}
+						algorithm.to_string().to_lowercase(),
+						level.map_or(String::new(), |level| format!(":{}", level)),
 					);
 				}
 				zip.start_file(name, options).wrap_err_with(|| {
@@ -415,16 +441,16 @@ fn main() -> Result<()> {
 				if file.is_dir() {
 					continue;
 				}
-				let (method, recompress) = match match_glob_value(&recompress, name) {
-					Some(method) => (method, file.compression() != method),
-					None => (file.compression(), false),
+				let (algorithm, _level, recompress) = match match_glob_value(&recompress, name) {
+					Some((algorithm, level)) => (algorithm, level, file.compression() != algorithm),
+					None => (file.compression(), None, false),
 				};
 				if recompress {
 					if verbose > 0 {
 						println!(
 							"`{}`: not {}-compressed in `{}`",
 							name,
-							method.to_string().to_lowercase(),
+							algorithm.to_string().to_lowercase(),
 							inputs[input].display()
 						);
 					}
@@ -435,12 +461,12 @@ fn main() -> Result<()> {
 						println!(
 							"`{}`: {}-compressed in `{}`",
 							name,
-							method.to_string().to_lowercase(),
+							algorithm.to_string().to_lowercase(),
 							inputs[input].display()
 						);
 					}
 				}
-				let bytes = if method == CompressionMethod::Stored {
+				let bytes = if algorithm == CompressionMethod::Stored {
 					match_glob_value(&align, name)
 				} else {
 					None
