@@ -24,10 +24,10 @@
 //! default values.
 //!
 //! USAGE:
-//!     rezip [OPTIONS] [--] [ZIP]...
+//!     rezip [OPTIONS] [--] [glob]...
 //!
 //! ARGS:
-//!     <ZIP>...
+//!     <glob>...
 //!             Merges or checks input ZIP archives.
 //!
 //!             Stacks identically named files in different input ZIP archives in
@@ -36,12 +36,12 @@
 //!             archive is merged into the output ZIP archive.
 //!
 //! OPTIONS:
-//!     -o, --output <ZIP>
+//!     -o, --output <path>
 //!             Writes output ZIP archive.
 //!
 //!             With no output ZIP archive, checks if files in input ZIP archives
 //!             are as requested according to --recompress and --align. Recompress
-//!             levels are not considered.
+//!             levels are not checked.
 //!
 //!     -f, --force
 //!             Writes existing output ZIP archive
@@ -87,7 +87,7 @@
 
 use clap::{crate_authors, crate_version, AppSettings, Clap};
 use color_eyre::{eyre::eyre, eyre::WrapErr, Result};
-use glob::Pattern;
+use glob::{glob as glob_expand, Pattern};
 use indexmap::IndexMap;
 use ndarray::{ArrayD, Axis};
 use ndarray_npy::{ReadNpyError, ReadNpyExt, ReadableElement, WritableElement, WriteNpyExt};
@@ -121,13 +121,13 @@ struct Rezip {
 	/// Stacks identically named files in different input ZIP archives in the order given by parsing
 	/// supported file formats like NPY (NumPy array file). Otherwise, only the file in the last
 	/// given input ZIP archive is merged into the output ZIP archive.
-	#[clap(value_name = "ZIP")]
-	inputs: Vec<PathBuf>,
+	#[clap(value_name = "glob")]
+	inputs: Vec<String>,
 	/// Writes output ZIP archive.
 	///
 	/// With no output ZIP archive, checks if files in input ZIP archives are as requested according
-	/// to --recompress and --align. Recompress levels are not considered.
-	#[clap(short, long, value_name = "ZIP")]
+	/// to --recompress and --align. Recompress levels are not checked.
+	#[clap(short, long, value_name = "path")]
 	output: Option<PathBuf>,
 	/// Writes existing output ZIP archive.
 	#[clap(short, long)]
@@ -276,35 +276,45 @@ fn main() -> Result<()> {
 				.wrap_err_with(|| format!("Cannot create output ZIP archive `{}`", path.display()))
 		})
 		.transpose()?;
-	let mut zips = inputs
-		.iter()
-		.map(|path| {
-			OpenOptions::new()
+	let mut zips = Vec::new();
+	let mut paths = Vec::new();
+	for glob in &inputs {
+		let inputs =
+			glob_expand(glob).wrap_err_with(|| format!("Invalid glob pattern `{}`", glob))?;
+		for path in inputs {
+			let path = path.wrap_err_with(|| format!("Cannot read matches of `{}`", glob))?;
+			let zip = OpenOptions::new()
 				.read(true)
-				.open(path)
+				.open(&path)
 				.wrap_err_with(|| format!("Cannot open input ZIP archive `{}`", path.display()))
 				.map(BufReader::new)
 				.and_then(|zip| {
 					ZipArchive::new(zip).wrap_err_with(|| {
 						format!("Cannot read input ZIP archive `{}`", path.display())
 					})
-				})
-		})
-		.collect::<Result<Vec<_>>>()?;
-	let mut files = IndexMap::<_, Vec<_>>::new();
-	for (input, (path, zip)) in inputs.iter().zip(&mut zips).enumerate() {
-		for index in 0..zip.len() {
-			let file = zip.by_index(index).wrap_err_with(|| {
-				format!(
-					"Cannot read file[{}] in input ZIP archive `{}`",
-					index,
-					path.display()
-				)
-			})?;
-			let name = file.name().to_string();
-			files.entry(name).or_default().push((input, index));
+				})?;
+			paths.push(path);
+			zips.push(zip);
 		}
 	}
+	let inputs = paths;
+	let files = {
+		let mut files = IndexMap::<_, Vec<_>>::new();
+		for (input, (path, zip)) in inputs.iter().zip(&mut zips).enumerate() {
+			for index in 0..zip.len() {
+				let file = zip.by_index(index).wrap_err_with(|| {
+					format!(
+						"Cannot read file[{}] in input ZIP archive `{}`",
+						index,
+						path.display()
+					)
+				})?;
+				let name = file.name().to_string();
+				files.entry(name).or_default().push((input, index));
+			}
+		}
+		files
+	};
 	if let Some((path, zip)) = output.as_ref().zip(zip.as_mut()) {
 		let mut total_pad_length = 0;
 		for (name, files) in &files {

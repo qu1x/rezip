@@ -38,10 +38,10 @@ that is a = only, disables an option with default values entirely as in
 default values.
 
 USAGE:
-    rezip [OPTIONS] [--] [ZIP]...
+    rezip [OPTIONS] [--] [glob]...
 
 ARGS:
-    <ZIP>...
+    <glob>...
             Merges or checks input ZIP archives.
 
             Stacks identically named files in different input ZIP archives in
@@ -50,12 +50,12 @@ ARGS:
             archive is merged into the output ZIP archive.
 
 OPTIONS:
-    -o, --output <ZIP>
+    -o, --output <path>
             Writes output ZIP archive.
 
             With no output ZIP archive, checks if files in input ZIP archives
             are as requested according to --recompress and --align. Recompress
-            levels are not considered.
+            levels are not checked.
 
     -f, --force
             Writes existing output ZIP archive
