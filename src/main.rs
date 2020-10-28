@@ -41,7 +41,7 @@
 //!
 //!             With no output ZIP archive, checks if files in input ZIP archives
 //!             are as requested according to --recompress and --align. Recompress
-//!             levels are not checked.
+//!             levels and --merge matches are not checked.
 //!
 //!     -f, --force
 //!             Writes existing output ZIP archive
@@ -92,10 +92,11 @@ use indexmap::IndexMap;
 use ndarray::{ArrayD, Axis};
 use ndarray_npy::{ReadNpyError, ReadNpyExt, ReadableElement, WritableElement, WriteNpyExt};
 use std::ffi::OsStr;
-use std::fs::OpenOptions;
-use std::io::{copy, BufReader, BufWriter, Read, Seek, Write};
+use std::fs::{self, Metadata, OpenOptions};
+use std::io::{self, copy, BufReader, BufWriter, Read, Seek, Write};
 use std::path::{Path, PathBuf};
-use zip::{write::FileOptions, CompressionMethod, ZipArchive, ZipWriter};
+use walkdir::WalkDir;
+use zip::{read::ZipFile, write::FileOptions, CompressionMethod, DateTime, ZipArchive, ZipWriter};
 
 /// Merges ZIP/NPZ archives recompressed or aligned and stacks NPY arrays
 ///
@@ -126,12 +127,18 @@ struct Rezip {
 	/// Writes output ZIP archive.
 	///
 	/// With no output ZIP archive, checks if files in input ZIP archives are as requested according
-	/// to --recompress and --align. Recompress levels are not checked.
+	/// to --recompress and --align. Recompress levels and --merge matches are not checked.
 	#[clap(short, long, value_name = "path")]
 	output: Option<PathBuf>,
 	/// Writes existing output ZIP archive.
 	#[clap(short, long)]
 	force: bool,
+	/// Merges files as if they were in ZIP archives.
+	///
+	/// Merges files as if they were in different ZIP archives and renames them to the given names.
+	/// With empty names, keeps original names, effectively creating a ZIP archive from input files.
+	#[clap(short, long, value_name = "[glob=]name")]
+	merge: Vec<String>,
 	/// Writes files recompressed.
 	///
 	/// Supported methods are stored (uncompressed), deflated (most common), bzip2[:1-9] (high
@@ -172,7 +179,7 @@ where
 				.map(|(left, right)| (left, &right[1..]))
 				.unwrap_or(("*", value));
 			Pattern::new(left)
-				.wrap_err_with(|| format!("Invalid glob pattern `{}`", left))
+				.wrap_err_with(|| format!("Invalid glob pattern {:?}", left))
 				.and_then(|left| {
 					if right.is_empty() {
 						Ok(None)
@@ -185,19 +192,189 @@ where
 		.collect()
 }
 
-fn match_glob_value<T: Copy>(values: &[(Pattern, Option<T>)], name: &str) -> Option<T> {
+fn match_glob_value<T: Clone, P: AsRef<Path>>(
+	values: &[(Pattern, Option<T>)],
+	name: P,
+) -> Option<T> {
 	values
 		.iter()
 		.rev()
 		.find_map(|(glob, value)| {
-			if glob.matches(name) {
+			if glob.matches_path(name.as_ref()) {
 				Some(value)
 			} else {
 				None
 			}
 		})
-		.copied()
+		.cloned()
 		.flatten()
+}
+
+enum Input<D: Read, Z: Read + Seek> {
+	Dir(DirArchive<D>),
+	Zip(ZipArchive<Z>),
+}
+
+struct DirArchive<D: Read> {
+	files: IndexMap<usize, DirFile<D>>,
+}
+
+impl<D: Read> DirArchive<D> {
+	fn len(&self) -> usize {
+		self.files.len()
+	}
+	fn by_index(&mut self, index: usize) -> Option<&mut DirFile<D>> {
+		self.files.get_mut(&index)
+	}
+}
+
+struct DirFile<R: Read> {
+	name: String,
+	#[allow(dead_code)] // TODO
+	metadata: Metadata,
+	reader: Option<R>,
+}
+
+impl DirFile<BufReader<fs::File>> {
+	fn new(name: String, metadata: Metadata) -> Result<Self> {
+		let reader = if metadata.is_dir() {
+			None
+		} else {
+			Some(
+				OpenOptions::new()
+					.read(true)
+					.open(&name)
+					.wrap_err_with(|| format!("Cannot open input file {:?}", name))
+					.map(BufReader::new)?,
+			)
+		};
+		Ok(DirFile {
+			name,
+			metadata,
+			reader,
+		})
+	}
+}
+
+enum File<'a, R: Read> {
+	DirFile(&'a mut DirFile<R>),
+	ZipFile(ZipFile<'a>),
+}
+
+impl<'a, R: Read> File<'a, R> {
+	fn name(&self) -> &Path {
+		match self {
+			Self::DirFile(file) => Path::new(&file.name),
+			Self::ZipFile(file) => Path::new(file.name()),
+		}
+	}
+	fn compression(&self) -> CompressionMethod {
+		match self {
+			Self::DirFile(_file) => CompressionMethod::Stored,
+			Self::ZipFile(file) => file.compression(),
+		}
+	}
+	fn last_modified(&self) -> DateTime {
+		match self {
+			Self::DirFile(_file) => DateTime::from_msdos(0, 0), // TODO
+			Self::ZipFile(file) => file.last_modified(),
+		}
+	}
+	fn is_dir(&self) -> bool {
+		match self {
+			Self::DirFile(file) => file.reader.is_none(),
+			Self::ZipFile(file) => file.is_dir(),
+		}
+	}
+	fn unix_mode(&self) -> Option<u32> {
+		match self {
+			Self::DirFile(_file) => None, // TODO
+			Self::ZipFile(file) => file.unix_mode(),
+		}
+	}
+	fn data_start(&self) -> Option<u64> {
+		match self {
+			Self::DirFile(_file) => None,
+			Self::ZipFile(file) => Some(file.data_start()),
+		}
+	}
+}
+
+impl<'a, R: Read> Read for File<'a, R> {
+	fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+		match self {
+			Self::DirFile(file) => {
+				if let Some(file) = &mut file.reader {
+					file.read(buf)
+				} else {
+					Err(io::Error::new(io::ErrorKind::Other, "Not readable"))
+				}
+			}
+			Self::ZipFile(file) => file.read(buf),
+		}
+	}
+}
+
+impl<D: Read, Z: Read + Seek> Input<D, Z> {
+	fn len(&self) -> usize {
+		match self {
+			Self::Dir(dir) => dir.len(),
+			Self::Zip(zip) => zip.len(),
+		}
+	}
+	fn by_index(&mut self, index: usize) -> Option<File<D>> {
+		match self {
+			Self::Dir(dir) => dir.by_index(index).map(File::DirFile),
+			Self::Zip(zip) => zip.by_index(index).map(File::ZipFile).ok(),
+		}
+	}
+}
+
+impl Input<BufReader<fs::File>, BufReader<fs::File>> {
+	fn new<P: AsRef<Path>>(path: P, merge: &[(Pattern, Option<String>)]) -> Result<Self> {
+		let path = path.as_ref();
+		let metadata =
+			fs::metadata(path).wrap_err_with(|| format!("Cannot get metadata of {:?}", path))?;
+		if let Some(name) = match_glob_value(merge, path) {
+			let mut files = IndexMap::new();
+			let file = DirFile::new(name, metadata)?;
+			files.insert(0, file);
+			Ok(Self::Dir(DirArchive { files }))
+		} else {
+			if metadata.is_dir() {
+				let mut files = IndexMap::new();
+				let entries = WalkDir::new(path)
+					.follow_links(true)
+					.sort_by(|a, b| a.file_name().cmp(b.file_name()))
+					.into_iter();
+				for (index, entry) in entries.enumerate() {
+					let entry = entry.wrap_err_with(|| format!("Cannot traverse {:?}", path))?;
+					let name = entry
+						.path()
+						.to_str()
+						.ok_or_else(|| eyre!("Invalid file name {:?}", entry.path()))?
+						.to_string();
+					let metadata = entry
+						.metadata()
+						.wrap_err_with(|| format!("Cannot get metadata of {:?}", name))?;
+					let file = DirFile::new(name, metadata)?;
+					files.insert(index, file);
+				}
+				Ok(Self::Dir(DirArchive { files }))
+			} else {
+				OpenOptions::new()
+					.read(true)
+					.open(&path)
+					.wrap_err_with(|| format!("Cannot open input ZIP archive {:?}", path))
+					.map(BufReader::new)
+					.and_then(|zip| {
+						ZipArchive::new(zip)
+							.wrap_err_with(|| format!("Cannot read input ZIP archive {:?}", path))
+					})
+					.map(Self::Zip)
+			}
+		}
+	}
 }
 
 fn main() -> Result<()> {
@@ -206,11 +383,13 @@ fn main() -> Result<()> {
 		inputs,
 		output,
 		force,
+		merge,
 		recompress,
 		align,
 		stack,
 		verbose,
 	} = Rezip::parse();
+	let merge = parse_glob_value(&merge, |name| Ok(name.to_string()))?;
 	let recompress = parse_glob_value(&recompress, |method| {
 		let mut parameters = method.split(':');
 		let (algorithm, level) = (parameters.next(), parameters.next());
@@ -223,7 +402,7 @@ fn main() -> Result<()> {
 						if (1..=9).contains(&level) {
 							Ok(Some(level))
 						} else {
-							Err(eyre!("Invalid level in `{}`", method))
+							Err(eyre!("Invalid level in {:?}", method))
 						}
 					})
 				})
@@ -234,15 +413,15 @@ fn main() -> Result<()> {
 						if (1..=21).contains(&level) {
 							Ok(Some(level))
 						} else {
-							Err(eyre!("Invalid level in `{}`", method))
+							Err(eyre!("Invalid level in {:?}", method))
 						}
 					})
 				})
 				.map(|level| (CompressionMethod::Zstd, level)),
-			(Some(_), _) => Err(eyre!("Unsupported method `{}`", method)),
-			_ => Err(eyre!("Invalid method `{}`", method)),
+			(Some(_), _) => Err(eyre!("Unsupported method {:?}", method)),
+			_ => Err(eyre!("Invalid method {:?}", method)),
 		}
-		.wrap_err_with(|| format!("Invalid recompress method `{}`", method))
+		.wrap_err_with(|| format!("Invalid recompress method {:?}", method))
 	})?;
 	let align = parse_glob_value(&align, |bytes| {
 		bytes
@@ -255,11 +434,11 @@ fn main() -> Result<()> {
 					Err(eyre!("Must be a power of two"))
 				}
 			})
-			.wrap_err_with(|| format!("Invalid align bytes `{}`", bytes))
+			.wrap_err_with(|| format!("Invalid align bytes {:?}", bytes))
 	})?;
 	let stack = parse_glob_value(&stack, |axis| {
 		axis.parse()
-			.wrap_err_with(|| format!("Invalid stack axis `{}`", axis))
+			.wrap_err_with(|| format!("Invalid stack axis {:?}", axis))
 	})?;
 	let mut zip = output
 		.as_ref()
@@ -273,26 +452,17 @@ fn main() -> Result<()> {
 				.open(path)
 				.map(BufWriter::new)
 				.map(ZipWriter::new)
-				.wrap_err_with(|| format!("Cannot create output ZIP archive `{}`", path.display()))
+				.wrap_err_with(|| format!("Cannot create output ZIP archive {:?}", path))
 		})
 		.transpose()?;
 	let mut zips = Vec::new();
 	let mut paths = Vec::new();
 	for glob in &inputs {
 		let inputs =
-			glob_expand(glob).wrap_err_with(|| format!("Invalid glob pattern `{}`", glob))?;
+			glob_expand(glob).wrap_err_with(|| format!("Invalid glob pattern {:?}", glob))?;
 		for path in inputs {
-			let path = path.wrap_err_with(|| format!("Cannot read matches of `{}`", glob))?;
-			let zip = OpenOptions::new()
-				.read(true)
-				.open(&path)
-				.wrap_err_with(|| format!("Cannot open input ZIP archive `{}`", path.display()))
-				.map(BufReader::new)
-				.and_then(|zip| {
-					ZipArchive::new(zip).wrap_err_with(|| {
-						format!("Cannot read input ZIP archive `{}`", path.display())
-					})
-				})?;
+			let path = path.wrap_err_with(|| format!("Cannot read matches of {:?}", glob))?;
+			let zip = Input::new(&path, &merge)?;
 			paths.push(path);
 			zips.push(zip);
 		}
@@ -301,15 +471,23 @@ fn main() -> Result<()> {
 	let files = {
 		let mut files = IndexMap::<_, Vec<_>>::new();
 		for (input, (path, zip)) in inputs.iter().zip(&mut zips).enumerate() {
+			if verbose > 0 {
+				println!(
+					"{:?}: indexing {} file{}",
+					path,
+					zip.len(),
+					if zip.len() > 1 { "s" } else { "" },
+				);
+			}
 			for index in 0..zip.len() {
-				let file = zip.by_index(index).wrap_err_with(|| {
-					format!(
-						"Cannot read file[{}] in input ZIP archive `{}`",
+				let file = zip.by_index(index).ok_or_else(|| {
+					eyre!(
+						"Cannot read file[{}] in input ZIP archive {:?}",
 						index,
-						path.display()
+						path
 					)
 				})?;
-				let name = file.name().to_string();
+				let name = file.name().to_path_buf();
 				files.entry(name).or_default().push((input, index));
 			}
 		}
@@ -343,14 +521,12 @@ fn main() -> Result<()> {
 			};
 			if is_dir {
 				if verbose > 0 {
-					println!("`{}`: add directory", name);
+					println!("{:?}: merging directory from {:?}", name, path);
 				}
-				zip.add_directory(name, options).wrap_err_with(|| {
-					format!(
-						"Cannot add directory to output ZIP archive `{}`",
-						path.display()
-					)
-				})?;
+				zip.add_directory(name.to_str().unwrap(), options)
+					.wrap_err_with(|| {
+						format!("Cannot add directory to output ZIP archive {:?}", path)
+					})?;
 				continue;
 			}
 			let bytes = if algorithm == CompressionMethod::Stored {
@@ -360,35 +536,30 @@ fn main() -> Result<()> {
 			};
 			if let Some(bytes) = bytes {
 				if verbose > 0 {
-					println!("`{}`: start file {}-byte aligned", name, bytes);
+					println!("{:?}: starting file {}-byte aligned", name, bytes);
 				}
-				let pad_length =
-					zip.start_file_aligned(name, options, bytes)
-						.wrap_err_with(|| {
-							format!(
-								"Cannot start file in output ZIP archive `{}`",
-								path.display()
-							)
-						})?;
+				let pad_length = zip
+					.start_file_aligned(name.to_str().unwrap(), options, bytes)
+					.wrap_err_with(|| {
+						format!("Cannot start file in output ZIP archive {:?}", path)
+					})?;
 				if verbose > 1 {
-					println!("`{}`: via {}-byte pad", name, pad_length);
+					println!("{:?}: via {}-byte pad", name, pad_length);
 				}
 				total_pad_length += pad_length;
 			} else {
 				if verbose > 0 {
 					println!(
-						"`{}`: start file {}{}-recompressed",
+						"{:?}: starting file {}{}-recompressed",
 						name,
 						algorithm.to_string().to_lowercase(),
 						level.map_or(String::new(), |level| format!(":{}", level)),
 					);
 				}
-				zip.start_file(name, options).wrap_err_with(|| {
-					format!(
-						"Cannot start file in output ZIP archive `{}`",
-						path.display()
-					)
-				})?;
+				zip.start_file(name.to_str().unwrap(), options)
+					.wrap_err_with(|| {
+						format!("Cannot start file in output ZIP archive {:?}", path)
+					})?;
 			}
 			let stack_extensions = [Some("npy")];
 			let axis = if files.len() > 1 && stack_extensions.contains(&extension) {
@@ -398,11 +569,11 @@ fn main() -> Result<()> {
 			};
 			if let Some(axis) = axis {
 				if verbose > 0 {
-					println!("`{}`: stack {} files", name, files.len());
+					println!("{:?}: stacking {} files", name, files.len());
 				}
 				if verbose > 2 {
 					for (input, _index) in files.iter().copied() {
-						println!("`{}`: stack from `{}`", name, inputs[input].display());
+						println!("{:?}: stacking from {:?}", name, inputs[input]);
 					}
 				}
 				match extension {
@@ -416,29 +587,21 @@ fn main() -> Result<()> {
 					.map(|(input, index)| (input, zips[input].by_index(index).unwrap()))
 					.unwrap();
 				if verbose > 0 {
-					println!("`{}`: merge from `{}`", name, inputs[input].display());
+					println!("{:?}: merging from {:?}", name, inputs[input]);
 				}
 				copy(file, zip).wrap_err_with(|| {
-					format!(
-						"Cannot write file to output ZIP archive `{}`",
-						path.display()
-					)
+					format!("Cannot write file to output ZIP archive {:?}", path)
 				})?;
 			}
 		}
 		if verbose > 0 {
-			println!("Finish `{}`", path.display());
+			println!("{:?}: finishing", path);
 		}
 		zip.finish()
 			.and_then(|mut zip| zip.flush().map_err(From::from))
-			.wrap_err_with(|| {
-				format!(
-					"Cannot write file to output ZIP archive `{}`",
-					path.display()
-				)
-			})?;
+			.wrap_err_with(|| format!("Cannot write file to output ZIP archive {:?}", path))?;
 		if verbose > 1 {
-			println!("Padded {} bytes in total", total_pad_length);
+			println!("{:?}: via {}-byte pad in total", path, total_pad_length);
 		}
 		Ok(())
 	} else {
@@ -457,10 +620,10 @@ fn main() -> Result<()> {
 				if recompress {
 					if verbose > 0 {
 						println!(
-							"`{}`: not {}-compressed in `{}`",
+							"{:?}: not {}-compressed in {:?}",
 							name,
 							algorithm.to_string().to_lowercase(),
-							inputs[input].display()
+							inputs[input]
 						);
 					}
 					compressed = false;
@@ -468,10 +631,10 @@ fn main() -> Result<()> {
 				} else {
 					if verbose > 1 {
 						println!(
-							"`{}`: {}-compressed in `{}`",
+							"{:?}: {}-compressed in {:?}",
 							name,
 							algorithm.to_string().to_lowercase(),
-							inputs[input].display()
+							inputs[input]
 						);
 					}
 				}
@@ -480,23 +643,16 @@ fn main() -> Result<()> {
 				} else {
 					None
 				};
-				if let Some(bytes) = bytes {
-					if file.data_start() % bytes as u64 == 0 {
+				if let Some((data_start, bytes)) = file.data_start().zip(bytes) {
+					if data_start % bytes as u64 == 0 {
 						if verbose > 1 {
-							println!(
-								"`{}`: {}-byte aligned in `{}`",
-								name,
-								bytes,
-								inputs[input].display()
-							);
+							println!("{:?}: {}-byte aligned in {:?}", name, bytes, inputs[input]);
 						}
 					} else {
 						if verbose > 0 {
 							println!(
-								"`{}`: not {}-byte aligned in `{}`",
-								name,
-								bytes,
-								inputs[input].display()
+								"{:?}: not {}-byte aligned in {:?}",
+								name, bytes, inputs[input]
 							);
 						}
 						aligned = false;
@@ -518,59 +674,60 @@ fn main() -> Result<()> {
 	}
 }
 
-fn try_stack_npy<W, R>(
+fn try_stack_npy<W, D, Z>(
 	path: &Path,
 	zip: &mut ZipWriter<W>,
-	zips: &mut [ZipArchive<R>],
+	zips: &mut [Input<D, Z>],
 	files: &[(usize, usize)],
-	name: &str,
+	name: &Path,
 	axis: usize,
 ) -> Result<()>
 where
 	W: Write + Seek,
-	R: Read + Seek,
+	D: Read,
+	Z: Read + Seek,
 {
-	let name = || format!("Cannot stack `{}`", name);
-	if stack_npy::<f64, W, R, _>(path, zip, zips, files, name, axis)? {
+	let name = || format!("Cannot stack {:?}", name);
+	if stack_npy::<f64, W, D, Z, _>(path, zip, zips, files, name, axis)? {
 		return Ok(());
 	}
-	if stack_npy::<f32, W, R, _>(path, zip, zips, files, name, axis)? {
+	if stack_npy::<f32, W, D, Z, _>(path, zip, zips, files, name, axis)? {
 		return Ok(());
 	}
-	if stack_npy::<i64, W, R, _>(path, zip, zips, files, name, axis)? {
+	if stack_npy::<i64, W, D, Z, _>(path, zip, zips, files, name, axis)? {
 		return Ok(());
 	}
-	if stack_npy::<u64, W, R, _>(path, zip, zips, files, name, axis)? {
+	if stack_npy::<u64, W, D, Z, _>(path, zip, zips, files, name, axis)? {
 		return Ok(());
 	}
-	if stack_npy::<i32, W, R, _>(path, zip, zips, files, name, axis)? {
+	if stack_npy::<i32, W, D, Z, _>(path, zip, zips, files, name, axis)? {
 		return Ok(());
 	}
-	if stack_npy::<u32, W, R, _>(path, zip, zips, files, name, axis)? {
+	if stack_npy::<u32, W, D, Z, _>(path, zip, zips, files, name, axis)? {
 		return Ok(());
 	}
-	if stack_npy::<i16, W, R, _>(path, zip, zips, files, name, axis)? {
+	if stack_npy::<i16, W, D, Z, _>(path, zip, zips, files, name, axis)? {
 		return Ok(());
 	}
-	if stack_npy::<u16, W, R, _>(path, zip, zips, files, name, axis)? {
+	if stack_npy::<u16, W, D, Z, _>(path, zip, zips, files, name, axis)? {
 		return Ok(());
 	}
-	if stack_npy::<i8, W, R, _>(path, zip, zips, files, name, axis)? {
+	if stack_npy::<i8, W, D, Z, _>(path, zip, zips, files, name, axis)? {
 		return Ok(());
 	}
-	if stack_npy::<u8, W, R, _>(path, zip, zips, files, name, axis)? {
+	if stack_npy::<u8, W, D, Z, _>(path, zip, zips, files, name, axis)? {
 		return Ok(());
 	}
-	if stack_npy::<bool, W, R, _>(path, zip, zips, files, name, axis)? {
+	if stack_npy::<bool, W, D, Z, _>(path, zip, zips, files, name, axis)? {
 		return Ok(());
 	}
 	Err(eyre!("Unsupported data-type")).wrap_err_with(name)
 }
 
-fn stack_npy<A, W, R, F>(
+fn stack_npy<A, W, D, Z, F>(
 	path: &Path,
 	zip: &mut ZipWriter<W>,
-	zips: &mut [ZipArchive<R>],
+	zips: &mut [Input<D, Z>],
 	files: &[(usize, usize)],
 	name: F,
 	axis: usize,
@@ -578,7 +735,8 @@ fn stack_npy<A, W, R, F>(
 where
 	A: ReadableElement + WritableElement + Copy,
 	W: Write + Seek,
-	R: Read + Seek,
+	D: Read,
+	Z: Read + Seek,
 	F: Fn() -> String,
 {
 	let mut arrays = Vec::new();
@@ -593,11 +751,8 @@ where
 	}
 	let arrays = arrays.iter().map(ArrayD::view).collect::<Vec<_>>();
 	let array = ndarray::stack(Axis(axis), &arrays).wrap_err_with(name)?;
-	array.write_npy(zip).wrap_err_with(|| {
-		format!(
-			"Cannot write file to output ZIP archive `{}`",
-			path.display()
-		)
-	})?;
+	array
+		.write_npy(zip)
+		.wrap_err_with(|| format!("Cannot write file to output ZIP archive {:?}", path))?;
 	Ok(true)
 }

@@ -55,7 +55,7 @@ OPTIONS:
 
             With no output ZIP archive, checks if files in input ZIP archives
             are as requested according to --recompress and --align. Recompress
-            levels are not checked.
+            levels and --merge matches are not checked.
 
     -f, --force
             Writes existing output ZIP archive
