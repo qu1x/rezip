@@ -46,6 +46,16 @@
 //!     -f, --force
 //!             Writes existing output ZIP archive
 //!
+//!     -m, --merge <[glob=]name>...
+//!             Merges files as if they were in ZIP archives.
+//!
+//!             Merges files as if they were in different ZIP archives and renames
+//!             them to the given names. With empty names, keeps original names,
+//!             effectively creating a ZIP archive from input files.
+//!
+//!             Note: File permissions and its last modification time are not yet
+//!             supported.
+//!
 //!     -r, --recompress <[glob=]method>...
 //!             Writes files recompressed.
 //!
@@ -53,6 +63,8 @@
 //!             bzip2[:1-9] (high ratio) with 9 as default level, and zstd[:1-21]
 //!             (modern) with 3 as default level. With no methods, files are
 //!             recompressed using their original methods but with default levels.
+//!
+//!             Note: Compression levels and method zstd are not yet supported.
 //!             [default: stored]
 //!
 //!     -a, --align <[glob=]bytes>...
@@ -84,6 +96,8 @@
 
 #![forbid(unsafe_code)]
 #![forbid(missing_docs)]
+#![allow(clippy::collapsible_else_if)]
+#![allow(clippy::large_enum_variant)]
 
 use clap::{crate_authors, crate_version, AppSettings, Clap};
 use color_eyre::{eyre::eyre, eyre::WrapErr, Result};
@@ -137,6 +151,8 @@ struct Rezip {
 	///
 	/// Merges files as if they were in different ZIP archives and renames them to the given names.
 	/// With empty names, keeps original names, effectively creating a ZIP archive from input files.
+	///
+	/// Note: File permissions and its last modification time are not yet supported.
 	#[clap(short, long, value_name = "[glob=]name")]
 	merge: Vec<String>,
 	/// Writes files recompressed.
@@ -144,6 +160,8 @@ struct Rezip {
 	/// Supported methods are stored (uncompressed), deflated (most common), bzip2[:1-9] (high
 	/// ratio) with 9 as default level, and zstd[:1-21] (modern) with 3 as default level. With no
 	/// methods, files are recompressed using their original methods but with default levels.
+	///
+	/// Note: Compression levels and method zstd are not yet supported.
 	#[clap(short, long, value_name = "[glob=]method", default_values = &["stored"])]
 	recompress: Vec<String>,
 	/// Aligns uncompressed files.
@@ -407,17 +425,18 @@ fn main() -> Result<()> {
 					})
 				})
 				.map(|level| (CompressionMethod::Bzip2, level)),
-			(Some("zstd"), level) => level
-				.map_or(Ok(Some(3)), |level| {
-					level.parse::<i32>().map_err(From::from).and_then(|level| {
-						if (1..=21).contains(&level) {
-							Ok(Some(level))
-						} else {
-							Err(eyre!("Invalid level in {:?}", method))
-						}
-					})
-				})
-				.map(|level| (CompressionMethod::Zstd, level)),
+			// TODO
+			//(Some("zstd"), level) => level
+			//	.map_or(Ok(Some(3)), |level| {
+			//		level.parse::<i32>().map_err(From::from).and_then(|level| {
+			//			if (1..=21).contains(&level) {
+			//				Ok(Some(level))
+			//			} else {
+			//				Err(eyre!("Invalid level in {:?}", method))
+			//			}
+			//		})
+			//	})
+			//	.map(|level| (CompressionMethod::Zstd, level)),
 			(Some(_), _) => Err(eyre!("Unsupported method {:?}", method)),
 			_ => Err(eyre!("Invalid method {:?}", method)),
 		}
@@ -513,7 +532,8 @@ fn main() -> Result<()> {
 					.compression_method(algorithm)
 					.last_modified_time(file.last_modified())
 					.large_file(true);
-				let options = level.map_or(options, |level| options.compression_level(level));
+				// TODO
+				//let options = level.map_or(options, |level| options.compression_level(level));
 				let options = file
 					.unix_mode()
 					.map_or(options, |mode| options.unix_permissions(mode));

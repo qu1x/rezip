@@ -17,7 +17,7 @@ Merges ZIP/NPZ archives recompressed or aligned and stacks NPY arrays
 ## Installation
 
 ```sh
-cargo install --git https://github.com/qu1x/rezip.git
+cargo install rezip
 ```
 
 ## Command-line Interface
@@ -60,6 +60,16 @@ OPTIONS:
     -f, --force
             Writes existing output ZIP archive
 
+    -m, --merge <[glob=]name>...
+            Merges files as if they were in ZIP archives.
+
+            Merges files as if they were in different ZIP archives and renames
+            them to the given names. With empty names, keeps original names,
+            effectively creating a ZIP archive from input files.
+
+            Note: File permissions and its last modification time are not yet
+            supported.
+
     -r, --recompress <[glob=]method>...
             Writes files recompressed.
 
@@ -67,6 +77,8 @@ OPTIONS:
             bzip2[:1-9] (high ratio) with 9 as default level, and zstd[:1-21]
             (modern) with 3 as default level. With no methods, files are
             recompressed using their original methods but with default levels.
+
+            Note: Compression levels and method zstd are not yet supported.
             [default: stored]
 
     -a, --align <[glob=]bytes>...
@@ -108,7 +120,7 @@ additional terms or conditions.
 
 ## Releases
 
-### Version 0.1.0 (2020-09-29)
+### Version 0.1.0 (2021-06-05)
 
   * Implement.
 
