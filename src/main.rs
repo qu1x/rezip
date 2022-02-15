@@ -9,7 +9,7 @@
 //! # Command-line Interface
 //!
 //! ```text
-//! rezip 0.1.0
+//! rezip 0.1.1
 //! Rouven Spreckels <rs@qu1x.dev>
 //! Merges ZIP/NPZ archives recompressed or aligned and stacks NPY arrays
 //!
@@ -97,9 +97,11 @@
 #![forbid(unsafe_code)]
 #![forbid(missing_docs)]
 #![allow(clippy::collapsible_else_if)]
+#![allow(clippy::redundant_else)]
+#![allow(clippy::map_unwrap_or)]
 #![allow(clippy::large_enum_variant)]
 
-use clap::{crate_authors, crate_version, AppSettings, Clap};
+use clap::{crate_authors, crate_version, AppSettings, Parser};
 use color_eyre::{eyre::eyre, eyre::WrapErr, Result};
 use glob::{glob as glob_expand, Pattern};
 use indexmap::IndexMap;
@@ -121,13 +123,11 @@ use zip::{read::ZipFile, write::FileOptions, CompressionMethod, DateTime, ZipArc
 /// the glob pattern. Passing a single pair with an empty glob pattern and an empty value, that is a
 /// = only, disables an option with default values entirely as in --recompress = whereas passing no
 /// pairs as in --recompress keeps assuming the default values.
-#[derive(Clap, Debug)]
+#[derive(Parser, Debug)]
 #[clap(
 	version = crate_version!(),
 	author = crate_authors!(),
-	global_setting = AppSettings::ColoredHelp,
 	global_setting = AppSettings::DeriveDisplayOrder,
-	global_setting = AppSettings::UnifiedHelpMessage,
 	global_setting = AppSettings::ArgRequiredElseHelp,
 )]
 struct Rezip {
