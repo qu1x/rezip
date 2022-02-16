@@ -9,7 +9,7 @@
 //! # Command-line Interface
 //!
 //! ```text
-//! rezip 0.1.1
+//! rezip 0.1.2
 //! Rouven Spreckels <rs@qu1x.dev>
 //! Merges ZIP/NPZ archives recompressed or aligned and stacks NPY arrays
 //!
@@ -770,7 +770,7 @@ where
 		arrays.push(array);
 	}
 	let arrays = arrays.iter().map(ArrayD::view).collect::<Vec<_>>();
-	let array = ndarray::stack(Axis(axis), &arrays).wrap_err_with(name)?;
+	let array = ndarray::concatenate(Axis(axis), &arrays).wrap_err_with(name)?;
 	array
 		.write_npy(zip)
 		.wrap_err_with(|| format!("Cannot write file to output ZIP archive {:?}", path))?;

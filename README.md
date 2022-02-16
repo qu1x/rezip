@@ -120,6 +120,10 @@ additional terms or conditions.
 
 ## Releases
 
+### Version 0.1.2 (2022-02-16)
+
+  * Fix silent renaming of `ndarray::stack` to `ndarray::concatenate`.
+
 ### Version 0.1.1 (2022-02-15)
 
   * Update dependencies fixing build.
