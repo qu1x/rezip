@@ -23,7 +23,7 @@ cargo install rezip
 ## Command-line Interface
 
 ```text
-rezip 0.1.1
+rezip 0.1.2
 Rouven Spreckels <rs@qu1x.dev>
 Merges ZIP/NPZ archives recompressed or aligned and stacks NPY arrays
 
