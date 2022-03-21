@@ -1,6 +1,6 @@
 [package]
 name = "rezip"
-version = "0.1.2"
+version = "0.1.3"
 authors = ["Rouven Spreckels <rs@qu1x.dev>"]
 edition = "2021"
 description = "Merges ZIP/NPZ archives recompressed or aligned and stacks NPY arrays"

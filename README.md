@@ -120,6 +120,11 @@ additional terms or conditions.
 
 ## Releases
 
+### Version 0.1.3 (2022-03-21)
+
+  * Fix RUSTSEC-2020-0071.
+  * Support compression method `zstd`.
+
 ### Version 0.1.2 (2022-02-16)
 
   * Fix silent renaming of `ndarray::stack` to `ndarray::concatenate`.

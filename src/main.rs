@@ -9,7 +9,7 @@
 //! # Command-line Interface
 //!
 //! ```text
-//! rezip 0.1.2
+//! rezip 0.1.3
 //! Rouven Spreckels <rs@qu1x.dev>
 //! Merges ZIP/NPZ archives recompressed or aligned and stacks NPY arrays
 //!
