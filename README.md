@@ -122,7 +122,7 @@ additional terms or conditions.
 
 ### Version 0.1.3 (2022-03-21)
 
-  * Fix RUSTSEC-2020-0071.
+  * Fix [RUSTSEC-2020-0071](https://rustsec.org/advisories/RUSTSEC-2020-0071).
   * Support compression method `zstd`.
 
 ### Version 0.1.2 (2022-02-16)
