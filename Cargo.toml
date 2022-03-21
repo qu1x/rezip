@@ -19,6 +19,6 @@ clap = { version = "3", features = ["derive", "cargo", "wrap_help"] }
 glob = "0.3"
 walkdir = "2"
 indexmap = "1"
-zip = "0.5"
+zip = "0.6"
 ndarray = "0.15"
 ndarray-npy = { version = "0.8", default-features = false }

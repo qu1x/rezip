@@ -128,7 +128,7 @@ use zip::{read::ZipFile, write::FileOptions, CompressionMethod, DateTime, ZipArc
 	version = crate_version!(),
 	author = crate_authors!(),
 	global_setting = AppSettings::DeriveDisplayOrder,
-	global_setting = AppSettings::ArgRequiredElseHelp,
+	arg_required_else_help = true,
 )]
 struct Rezip {
 	/// Merges or checks input ZIP archives.
