@@ -23,7 +23,7 @@ cargo install rezip
 ## Command-line Interface
 
 ```text
-rezip 0.1.2
+rezip 0.1.3
 Rouven Spreckels <rs@qu1x.dev>
 Merges ZIP/NPZ archives recompressed or aligned and stacks NPY arrays
 
@@ -38,7 +38,7 @@ that is a = only, disables an option with default values entirely as in
 default values.
 
 USAGE:
-    rezip [OPTIONS] [--] [glob]...
+    rezip [OPTIONS] [glob]...
 
 ARGS:
     <glob>...
@@ -60,7 +60,7 @@ OPTIONS:
     -f, --force
             Writes existing output ZIP archive
 
-    -m, --merge <[glob=]name>...
+    -m, --merge <[glob=]name>
             Merges files as if they were in ZIP archives.
 
             Merges files as if they were in different ZIP archives and renames
@@ -70,7 +70,7 @@ OPTIONS:
             Note: File permissions and its last modification time are not yet
             supported.
 
-    -r, --recompress <[glob=]method>...
+    -r, --recompress <[glob=]method>
             Writes files recompressed.
 
             Supported methods are stored (uncompressed), deflated (most common),
@@ -78,22 +78,26 @@ OPTIONS:
             (modern) with 3 as default level. With no methods, files are
             recompressed using their original methods but with default levels.
 
-            Note: Compression levels and method zstd are not yet supported.
+            Note: Compression levels are not yet supported.
+
             [default: stored]
 
-    -a, --align <[glob=]bytes>...
+    -a, --align <[glob=]bytes>
             Aligns uncompressed files.
 
             Aligns uncompressed files in ZIP archives by padding local file
             headers to enable memory-mapping, SIMD instruction extensions like
-            AVX-512, and dynamic loading of shared objects. [default: 64
-            *.so=4096]
+            AVX-512, and dynamic loading of shared objects.
 
-    -s, --stack <[glob=]axis>...
+            [default: 64 *.so=4096]
+
+    -s, --stack <[glob=]axis>
             Stacks arrays along axis.
 
             One stacked array at a time must fit twice into memory before it is
-            written to the output ZIP archive. [default: 0]
+            written to the output ZIP archive.
+
+            [default: 0]
 
     -v, --verbose
             Prints status information.
@@ -101,11 +105,10 @@ OPTIONS:
             The more occurrences, the more verbose, with three at most.
 
     -h, --help
-            Prints help information
+            Print help information
 
     -V, --version
-            Prints version information
-
+            Print version information
 ```
 
 ## License
