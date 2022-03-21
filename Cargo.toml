@@ -10,9 +10,6 @@ keywords = ["align", "merge", "zip", "npy", "npz"]
 categories = ["command-line-utilities"]
 license = "MIT OR Apache-2.0"
 
-[badges]
-travis-ci = { repository = "qu1x/rezip" }
-
 [dependencies]
 color-eyre = { version = "0.6", default-features = false }
 clap = { version = "3", features = ["derive", "cargo", "wrap_help"] }

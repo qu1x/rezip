@@ -1,13 +1,13 @@
-[![Build Status][]](https://travis-ci.org/qu1x/rezip)
+[![Build][]](https://github.com/qu1x/rezip/actions/workflows/build.yml)
 [![Downloads][]](https://crates.io/crates/rezip)
-[![Rust][]](https://www.rust-lang.org)
 [![Version][]](https://crates.io/crates/rezip)
+[![Rust][]](https://www.rust-lang.org)
 [![License][]](https://opensource.org/licenses)
 
-[Build Status]: https://travis-ci.org/qu1x/rezip.svg
+[Build]: https://github.com/qu1x/rezip/actions/workflows/build.yml/badge.svg
 [Downloads]: https://img.shields.io/crates/d/rezip.svg
-[Rust]: https://img.shields.io/badge/rust-stable-brightgreen.svg
 [Version]: https://img.shields.io/crates/v/rezip.svg
+[Rust]: https://img.shields.io/badge/rust-stable-brightgreen.svg
 [License]: https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg
 
 # rezip
