@@ -1,21 +1,32 @@
 [package]
 name = "rezip"
-version = "0.1.3"
-authors = ["Rouven Spreckels <rs@qu1x.dev>"]
-edition = "2021"
+version = "0.2.0"
+rust-version = "1.85.0"
+edition = "2024"
 description = "Merges ZIP/NPZ archives recompressed or aligned and stacks NPY arrays"
+documentation = "https://docs.rs/rezip"
 repository = "https://github.com/qu1x/rezip"
-readme = "README.md"
+authors = ["Rouven Spreckels <rs@qu1x.dev>"]
+license = "MIT OR Apache-2.0"
 keywords = ["align", "merge", "zip", "npy", "npz"]
 categories = ["command-line-utilities"]
-license = "MIT OR Apache-2.0"
+include = [
+	"src/**/*.rs",
+	"Cargo.toml",
+	"README.md",
+	"RELEASES.md",
+	"LICENSE-*",
+]
 
 [dependencies]
-color-eyre = { version = "0.6", default-features = false }
-clap = { version = "3", features = ["derive", "cargo", "wrap_help"] }
-glob = "0.3"
-walkdir = "2"
-indexmap = "1"
-zip = "0.6"
-ndarray = "0.15"
-ndarray-npy = { version = "0.8", default-features = false }
+anyhow = "1.0.96"
+clap = { version = "4.5.31", features = ["derive", "cargo", "wrap_help"] }
+glob = "0.3.2"
+walkdir = "2.5.0"
+indexmap = "2.7.1"
+zip = "2.2.3"
+ndarray-npz = "0.4.0"
+
+[lints.rust]
+unsafe-code = "forbid"
+missing-docs = "forbid"

@@ -1,24 +1,34 @@
 name: build
 on:
-  schedule:
-  - cron: '0 5 * * *'
-  push:
+  merge_group:
   pull_request:
+  push:
 env:
   CARGO_TERM_COLOR: always
 jobs:
-  std:
+  default:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout (std)
-      uses: actions/checkout@v2
-    - name: Toolchain (std)
-      uses: actions-rs/toolchain@v1
+    - name: checkout
+      uses: actions/checkout@v4
+    - name: msrv
+      run: |
+        msrv=$(cargo metadata --no-deps --format-version 1 |
+          jq --raw-output '.packages[] | select(.name=="rezip") | .rust_version')
+        echo "MSRV=$msrv" >> $GITHUB_ENV
+    - name: toolchain
+      uses: dtolnay/rust-toolchain@master
       with:
-        profile: minimal
-        toolchain: stable
-        override: true
-    - name: Test (std)
-      uses: actions-rs/cargo@v1
-      with:
-        command: test
+        toolchain: ${{ env.MSRV }}
+        components: rustfmt, rust-docs, clippy
+    - name: test
+      run: cargo test
+    - name: run
+      run: cargo run -- --help
+    - name: clippy
+      run: |
+        cargo clippy --tests --examples
+    - name: doc
+      run: cargo doc
+    - name: fmt
+      run: cargo fmt --check
