@@ -4,7 +4,6 @@ version = "0.2.1"
 rust-version = "1.85.0"
 edition = "2024"
 description = "Merges ZIP/NPZ archives recompressed or aligned and stacks NPY arrays"
-documentation = "https://docs.rs/rezip"
 repository = "https://github.com/qu1x/rezip"
 authors = ["Rouven Spreckels <rs@qu1x.dev>"]
 license = "MIT OR Apache-2.0"

@@ -1,7 +1,6 @@
 # rezip
 
 [![Build][]](https://github.com/qu1x/rezip/actions/workflows/build.yml)
-[![Documentation][]](https://docs.rs/rezip)
 [![Downloads][]](https://crates.io/crates/rezip)
 [![Version][]](https://crates.io/crates/rezip)
 [![Rust][]](https://www.rust-lang.org)
