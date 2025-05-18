@@ -234,9 +234,9 @@ fn match_glob_value<T: Clone, P: AsRef<Path>>(
         .flatten()
 }
 
-enum Input<D: Read, Z: Read + Seek> {
-    Dir(DirArchive<D>),
-    Zip(ZipArchive<Z>),
+enum Input<R: Read + Seek> {
+    Dir(DirArchive<R>),
+    Zip(ZipArchive<R>),
 }
 
 struct DirArchive<D: Read> {
@@ -283,7 +283,7 @@ impl DirFile<BufReader<fs::File>> {
 #[allow(clippy::large_enum_variant)]
 enum File<'a, R: Read> {
     DirFile(&'a mut DirFile<R>),
-    ZipFile(ZipFile<'a>),
+    ZipFile(ZipFile<'a, R>),
 }
 
 impl<R: Read> File<'_, R> {
@@ -332,7 +332,7 @@ impl<R: Read> Read for File<'_, R> {
                 if let Some(file) = &mut file.reader {
                     file.read(buf)
                 } else {
-                    Err(io::Error::new(io::ErrorKind::Other, "Not readable"))
+                    Err(io::Error::other("Not readable"))
                 }
             }
             Self::ZipFile(file) => file.read(buf),
@@ -340,14 +340,14 @@ impl<R: Read> Read for File<'_, R> {
     }
 }
 
-impl<D: Read, Z: Read + Seek> Input<D, Z> {
+impl<R: Read + Seek> Input<R> {
     fn len(&self) -> usize {
         match self {
             Self::Dir(dir) => dir.len(),
             Self::Zip(zip) => zip.len(),
         }
     }
-    fn by_index(&mut self, index: usize) -> Option<File<D>> {
+    fn by_index(&mut self, index: usize) -> Option<File<R>> {
         match self {
             Self::Dir(dir) => dir.by_index(index).map(File::DirFile),
             Self::Zip(zip) => zip.by_index(index).map(File::ZipFile).ok(),
@@ -355,7 +355,7 @@ impl<D: Read, Z: Read + Seek> Input<D, Z> {
     }
 }
 
-impl Input<BufReader<fs::File>, BufReader<fs::File>> {
+impl Input<BufReader<fs::File>> {
     fn new<P: AsRef<Path>>(path: P, merge: &[(Pattern, Option<String>)]) -> Result<Self> {
         let path = path.as_ref();
         let metadata =
@@ -673,60 +673,59 @@ fn main() -> Result<()> {
     }
 }
 
-fn try_stack_npy<W, D, Z>(
+fn try_stack_npy<W, R>(
     path: &Path,
     zip: &mut ZipWriter<W>,
-    zips: &mut [Input<D, Z>],
+    zips: &mut [Input<R>],
     files: &[(usize, usize)],
     name: &Path,
     axis: usize,
 ) -> Result<()>
 where
     W: Write + Seek,
-    D: Read,
-    Z: Read + Seek,
+    R: Read + Seek,
 {
     let name = || format!("Cannot stack {:?}", name);
-    if stack_npy::<f64, W, D, Z, _>(path, zip, zips, files, name, axis)? {
+    if stack_npy::<f64, W, R, _>(path, zip, zips, files, name, axis)? {
         return Ok(());
     }
-    if stack_npy::<f32, W, D, Z, _>(path, zip, zips, files, name, axis)? {
+    if stack_npy::<f32, W, R, _>(path, zip, zips, files, name, axis)? {
         return Ok(());
     }
-    if stack_npy::<i64, W, D, Z, _>(path, zip, zips, files, name, axis)? {
+    if stack_npy::<i64, W, R, _>(path, zip, zips, files, name, axis)? {
         return Ok(());
     }
-    if stack_npy::<u64, W, D, Z, _>(path, zip, zips, files, name, axis)? {
+    if stack_npy::<u64, W, R, _>(path, zip, zips, files, name, axis)? {
         return Ok(());
     }
-    if stack_npy::<i32, W, D, Z, _>(path, zip, zips, files, name, axis)? {
+    if stack_npy::<i32, W, R, _>(path, zip, zips, files, name, axis)? {
         return Ok(());
     }
-    if stack_npy::<u32, W, D, Z, _>(path, zip, zips, files, name, axis)? {
+    if stack_npy::<u32, W, R, _>(path, zip, zips, files, name, axis)? {
         return Ok(());
     }
-    if stack_npy::<i16, W, D, Z, _>(path, zip, zips, files, name, axis)? {
+    if stack_npy::<i16, W, R, _>(path, zip, zips, files, name, axis)? {
         return Ok(());
     }
-    if stack_npy::<u16, W, D, Z, _>(path, zip, zips, files, name, axis)? {
+    if stack_npy::<u16, W, R, _>(path, zip, zips, files, name, axis)? {
         return Ok(());
     }
-    if stack_npy::<i8, W, D, Z, _>(path, zip, zips, files, name, axis)? {
+    if stack_npy::<i8, W, R, _>(path, zip, zips, files, name, axis)? {
         return Ok(());
     }
-    if stack_npy::<u8, W, D, Z, _>(path, zip, zips, files, name, axis)? {
+    if stack_npy::<u8, W, R, _>(path, zip, zips, files, name, axis)? {
         return Ok(());
     }
-    if stack_npy::<bool, W, D, Z, _>(path, zip, zips, files, name, axis)? {
+    if stack_npy::<bool, W, R, _>(path, zip, zips, files, name, axis)? {
         return Ok(());
     }
     Err(anyhow!("Unsupported data-type")).with_context(name)
 }
 
-fn stack_npy<A, W, D, Z, F>(
+fn stack_npy<A, W, R, F>(
     path: &Path,
     zip: &mut ZipWriter<W>,
-    zips: &mut [Input<D, Z>],
+    zips: &mut [Input<R>],
     files: &[(usize, usize)],
     name: F,
     axis: usize,
@@ -734,8 +733,7 @@ fn stack_npy<A, W, D, Z, F>(
 where
     A: ReadableElement + WritableElement + Copy,
     W: Write + Seek,
-    D: Read,
-    Z: Read + Seek,
+    R: Read + Seek,
     F: Fn() -> String,
 {
     let mut arrays = Vec::new();
